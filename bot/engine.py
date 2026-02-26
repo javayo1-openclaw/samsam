@@ -39,6 +39,9 @@ class TradingEngine:
         self.round_has_trade = False
         self.round_signal_locked = False
 
+        self.current_entry_reason_ko = ""
+        self.current_is_fallback_entry = 0
+
     def run(self) -> None:
         self.tg.send("🚀 BTC 15m rule-engine started")
         while True:
@@ -62,7 +65,9 @@ class TradingEngine:
             if cmd.command == "/status":
                 self.tg.send(self._status_text())
             elif cmd.command == "/close":
-                self._force_close("telegram")
+                self._force_close("telegram_manual")
+            elif cmd.command == "/history":
+                self.tg.send(self._history_text())
 
     def _tick(self) -> None:
         now = int(time.time())
@@ -88,7 +93,8 @@ class TradingEngine:
                 self.round_side = choose_side_by_btc_trend(self.round_first_btc, self.round_last_btc)
                 self.round_signal_locked = True
                 self.tg.send(
-                    f"Round signal locked: {self.round_side} | btc {self.round_first_btc:.2f}->{self.round_last_btc:.2f}"
+                    f"[진입근거] 초반 5초 BTC 추세로 방향 확정: {self.round_side} | "
+                    f"{self.round_first_btc:.2f} -> {self.round_last_btc:.2f}"
                 )
             return
 
@@ -109,28 +115,40 @@ class TradingEngine:
         if side_price > self.settings.entry_price_cap:
             self.round_has_trade = True
             self.tg.send(
-                f"Skip entry: {self.round_side} price={side_price:.3f} > cap={self.settings.entry_price_cap:.3f}"
+                f"[진입스킵] 10분 시점 가격 {side_price:.3f}가 상한 {self.settings.entry_price_cap:.3f} 초과"
             )
             return
+
+        self.current_entry_reason_ko = (
+            f"초반 5초 BTC 추세가 {self.round_side}이고, 10분 시점 해당 토큰가격 {side_price:.3f} <= "
+            f"진입상한 {self.settings.entry_price_cap:.3f}"
+        )
+        self.current_is_fallback_entry = 0
 
         try:
             self.position = self.exchange.open_position(self.round_side, self.settings.order_size)
             self.round_has_trade = True
             self.tg.send(
-                f"Opened {self.round_side} at t+{elapsed}s | px={self.position.entry_price:.3f} size={self.settings.order_size}"
+                f"[진입성공] {self.round_side} 진입 | 근거: {self.current_entry_reason_ko}"
             )
         except Exception as primary_exc:
             opposite = "DOWN" if self.round_side == "UP" else "UP"
+            side_price_opposite = self.exchange.side_mark_price(opposite)
+            self.current_entry_reason_ko = (
+                f"주전략 {self.round_side} FOK 미체결로 반대매매 {opposite} 실행. "
+                f"반대측 10분 시점 가격={side_price_opposite:.3f}"
+            )
+            self.current_is_fallback_entry = 1
             try:
                 self.position = self.exchange.open_position(opposite, self.settings.order_size)
                 self.round_has_trade = True
                 self.tg.send(
-                    f"Primary FOK failed({self.round_side}), opened opposite {opposite}."
+                    f"[반대진입성공] 1차 FOK 실패({primary_exc}) 후 {opposite} 진입 | 근거: {self.current_entry_reason_ko}"
                 )
             except Exception as fallback_exc:
                 self.round_has_trade = True
                 self.tg.send(
-                    f"Entry failed both sides | primary={primary_exc} | fallback={fallback_exc}"
+                    f"[진입실패] 주전략/반대전략 모두 실패 | primary={primary_exc} | fallback={fallback_exc}"
                 )
 
     def _manage_open_position(self, elapsed: int) -> None:
@@ -139,14 +157,23 @@ class TradingEngine:
 
         mark = self.exchange.mark_price(self.position.token_id)
         pnl_pct = (mark - self.position.entry_price) / max(self.position.entry_price, 1e-9)
+        tp_target = (
+            self.settings.take_profit_pct_fallback
+            if self.current_is_fallback_entry == 1
+            else self.settings.take_profit_pct_primary
+        )
 
-        if pnl_pct >= self.settings.take_profit_pct:
-            self._force_close("tp_100pct", mark_price=mark)
+        if pnl_pct >= tp_target:
+            reason = (
+                f"익절청산: {'반대진입' if self.current_is_fallback_entry else '정상진입'} "
+                f"목표수익률 {tp_target * 100:.0f}% 달성"
+            )
+            self._force_close(reason, mark_price=mark)
             return
 
         cutoff = self.settings.round_seconds - self.settings.force_exit_before_expiry_sec
         if elapsed >= cutoff:
-            self._force_close("t_minus_3m", mark_price=mark)
+            self._force_close("만기 3분 전 강제청산", mark_price=mark)
 
     def _force_close(self, reason: str, mark_price: float = 0.0) -> None:
         if not self.position:
@@ -170,10 +197,32 @@ class TradingEngine:
                 pnl=pnl,
                 fees=fees,
                 outcome=outcome,
+                entry_reason_ko=self.current_entry_reason_ko,
+                exit_reason_ko=reason,
+                is_fallback_entry=self.current_is_fallback_entry,
             )
         )
-        self.tg.send(f"Closed {self.position.side} reason={reason} pnl={pnl - fees:.4f}")
+        self.tg.send(f"[청산] {self.position.side} | 사유: {reason} | 손익={pnl - fees:.4f}")
         self.position = None
+        self.current_entry_reason_ko = ""
+        self.current_is_fallback_entry = 0
+
+    def _history_text(self) -> str:
+        rows = list(self.store.fetch_recent_trades(5))
+        if not rows:
+            return "최근 매매 이력이 없습니다."
+
+        lines = ["🧾 최근 5건 전적"]
+        for row in rows:
+            ts, side, _, entry_price, exit_price, size, pnl, fees, outcome, entry_reason, exit_reason, is_fallback = row
+            lines.append(
+                f"- [{ts}] {side} {'(반대진입)' if is_fallback else '(정상진입)'} "
+                f"진입:{entry_price:.3f} 청산:{exit_price:.3f} 수량:{size} "
+                f"손익:{(pnl - fees):.4f} {'승' if outcome == 1 else '패'}"
+            )
+            lines.append(f"  · 진입근거: {entry_reason}")
+            lines.append(f"  · 청산사유: {exit_reason}")
+        return "\n".join(lines)
 
     def _status_text(self) -> str:
         stats = self.store.summary()

@@ -21,7 +21,8 @@ class Settings:
     db_path: str = "trade_data.sqlite3"
     order_size: float = 10.0
     entry_price_cap: float = 0.30
-    take_profit_pct: float = 1.0
+    take_profit_pct_primary: float = 1.5
+    take_profit_pct_fallback: float = 1.0
     round_seconds: int = 15 * 60
     trend_window_seconds: int = 5
     entry_check_second: int = 10 * 60
@@ -45,7 +46,8 @@ def load_settings() -> Settings:
         db_path=os.getenv("DB_PATH", "trade_data.sqlite3"),
         order_size=float(os.getenv("ORDER_SIZE", "10")),
         entry_price_cap=float(os.getenv("ENTRY_PRICE_CAP", "0.30")),
-        take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "1.0")),
+        take_profit_pct_primary=float(os.getenv("TAKE_PROFIT_PCT_PRIMARY", "1.5")),
+        take_profit_pct_fallback=float(os.getenv("TAKE_PROFIT_PCT_FALLBACK", "1.0")),
         round_seconds=int(os.getenv("ROUND_SECONDS", "900")),
         trend_window_seconds=int(os.getenv("TREND_WINDOW_SECONDS", "5")),
         entry_check_second=int(os.getenv("ENTRY_CHECK_SECOND", "600")),

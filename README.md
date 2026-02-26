@@ -8,15 +8,17 @@
   - 상승: `UP`
   - 하락: `DOWN`
 - **라운드 10분 시점**에 선택된 방향 토큰 가격이 `0.30 이하`일 때만 진입
-- 진입 주문은 FOK, 실패 시 **반대 방향으로 1회 재시도**
+- 진입 주문은 FOK, 실패 시 **반대 방향으로 1회 재시도(반대매매)**
 - 청산 규칙
-  - 수익률 100% 이상이면 자동 청산
+  - 정상 진입: 수익률 150% 이상이면 자동 청산
+  - 반대 진입: 수익률 100% 이상이면 자동 청산
   - 만기 3분 전(`T-180s`) 자동 청산
 - 연속진입 없음: 라운드당 최대 1회 진입
 
 ## 텔레그램 명령
 - `/status`: 상태/성과 조회
 - `/close`: 현재 포지션 즉시 청산
+- `/history`: 최근 5건 전적 + 한글 진입근거/청산사유
 
 ## 1) 사전 준비
 1. BTC 15분 마켓의 YES/NO `token_id` 확인
@@ -37,7 +39,8 @@ python -m bot.engine
 ## 3) 주요 설정값
 - `BTC15M_YES_TOKEN_ID`, `BTC15M_NO_TOKEN_ID`
 - `ENTRY_PRICE_CAP=0.30`
-- `TAKE_PROFIT_PCT=1.0`
+- `TAKE_PROFIT_PCT_PRIMARY=1.5` (정상 진입 익절 150%)
+- `TAKE_PROFIT_PCT_FALLBACK=1.0` (반대 진입 익절 100%)
 - `ENTRY_CHECK_SECOND=600` (10분)
 - `FORCE_EXIT_BEFORE_EXPIRY_SEC=180` (만기 3분 전)
 - `ORDER_SIZE`
