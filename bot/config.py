@@ -16,13 +16,16 @@ class Settings:
     no_token_id: str
     telegram_bot_token: str
     telegram_chat_id: str
-    poll_interval_sec: float = 5.0
-    status_interval_sec: float = 60.0
-    retrain_every_n_trades: int = 30
+    poll_interval_sec: float = 1.0
+    status_interval_sec: float = 30.0
     db_path: str = "trade_data.sqlite3"
-    take_profit_pct: float = 0.02
-    max_hold_seconds: int = 12 * 60
     order_size: float = 10.0
+    entry_price_cap: float = 0.30
+    take_profit_pct: float = 1.0
+    round_seconds: int = 15 * 60
+    trend_window_seconds: int = 5
+    entry_check_second: int = 10 * 60
+    force_exit_before_expiry_sec: int = 3 * 60
 
 
 def load_settings() -> Settings:
@@ -37,11 +40,14 @@ def load_settings() -> Settings:
         no_token_id=os.getenv("BTC15M_NO_TOKEN_ID", ""),
         telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
-        poll_interval_sec=float(os.getenv("POLL_INTERVAL_SEC", "5")),
-        status_interval_sec=float(os.getenv("STATUS_INTERVAL_SEC", "60")),
-        retrain_every_n_trades=int(os.getenv("RETRAIN_EVERY_N_TRADES", "30")),
+        poll_interval_sec=float(os.getenv("POLL_INTERVAL_SEC", "1")),
+        status_interval_sec=float(os.getenv("STATUS_INTERVAL_SEC", "30")),
         db_path=os.getenv("DB_PATH", "trade_data.sqlite3"),
-        take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "0.02")),
-        max_hold_seconds=int(os.getenv("MAX_HOLD_SECONDS", "720")),
         order_size=float(os.getenv("ORDER_SIZE", "10")),
+        entry_price_cap=float(os.getenv("ENTRY_PRICE_CAP", "0.30")),
+        take_profit_pct=float(os.getenv("TAKE_PROFIT_PCT", "1.0")),
+        round_seconds=int(os.getenv("ROUND_SECONDS", "900")),
+        trend_window_seconds=int(os.getenv("TREND_WINDOW_SECONDS", "5")),
+        entry_check_second=int(os.getenv("ENTRY_CHECK_SECOND", "600")),
+        force_exit_before_expiry_sec=int(os.getenv("FORCE_EXIT_BEFORE_EXPIRY_SEC", "180")),
     )

@@ -16,11 +16,6 @@ class Position:
 
 
 class PolymarketClient:
-    """Polymarket client for BTC 15m YES/NO tokens.
-
-    Requires token ids for the specific BTC 15m market outcome tokens.
-    """
-
     def __init__(
         self,
         host: str,
@@ -40,18 +35,13 @@ class PolymarketClient:
         self.api_passphrase = api_passphrase
         self.yes_token_id = yes_token_id
         self.no_token_id = no_token_id
-
         self._clob_client = None
         self._init_clob_client()
 
     def _init_clob_client(self) -> None:
-        try:
-            from py_clob_client.client import ClobClient
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError("py-clob-client 미설치: pip install py-clob-client") from exc
+        from py_clob_client.client import ClobClient
 
         client = ClobClient(self.host, key=self.private_key, chain_id=self.chain_id)
-
         if self.api_key and self.api_secret and self.api_passphrase:
             client.set_api_creds(
                 {
@@ -62,8 +52,16 @@ class PolymarketClient:
             )
         else:
             client.set_api_creds(client.create_or_derive_api_creds())
-
         self._clob_client = client
+
+    def get_btc_price(self) -> float:
+        resp = requests.get(
+            "https://api.binance.com/api/v3/ticker/price",
+            params={"symbol": "BTCUSDT"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        return float(resp.json()["price"])
 
     def _best_bid_ask(self, token_id: str) -> tuple[float, float]:
         resp = requests.get(
@@ -79,46 +77,43 @@ class PolymarketClient:
         best_ask = float(asks[0]["price"]) if asks else 1.0
         return best_bid, best_ask
 
-    def get_features(self) -> dict[str, float]:
-        yes_bid, yes_ask = self._best_bid_ask(self.yes_token_id)
-        yes_mid = (yes_bid + yes_ask) / 2
-        spread_bps = ((yes_ask - yes_bid) / max(yes_mid, 1e-6)) * 10_000
-        return {
-            "yes_mid_price": yes_mid,
-            "spread_bps": spread_bps,
-        }
-
     def mark_price(self, token_id: str) -> float:
         bid, ask = self._best_bid_ask(token_id)
         return (bid + ask) / 2
 
+    def side_mark_price(self, side: str) -> float:
+        token_id = self.yes_token_id if side == "UP" else self.no_token_id
+        return self.mark_price(token_id)
+
     def open_position(self, side: str, size: float) -> Position:
         token_id = self.yes_token_id if side == "UP" else self.no_token_id
         entry_price = self.mark_price(token_id)
-        self._place_buy(token_id, size)
+        self._place_buy(token_id, size, entry_price)
         return Position(side=side, token_id=token_id, entry_ts=int(time.time()), entry_price=entry_price, size=size)
 
     def close_position(self, pos: Position) -> tuple[float, float, float]:
         exit_price = self.mark_price(pos.token_id)
-        self._place_sell(pos.token_id, pos.size)
+        self._place_sell(pos.token_id, pos.size, exit_price)
         pnl = (exit_price - pos.entry_price) * pos.size
         fees = abs(pos.size) * 0.002
         return pnl, fees, exit_price
 
-    def _place_buy(self, token_id: str, size: float) -> None:
+    def _place_buy(self, token_id: str, size: float, mark: float) -> None:
         from py_clob_client.clob_types import OrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
 
+        buy_price = min(0.99, max(0.01, mark + 0.05))
         order = self._clob_client.create_order(
-            OrderArgs(token_id=token_id, price=0.99, size=size, side=BUY)
+            OrderArgs(token_id=token_id, price=buy_price, size=size, side=BUY)
         )
         self._clob_client.post_order(order, OrderType.FOK)
 
-    def _place_sell(self, token_id: str, size: float) -> None:
+    def _place_sell(self, token_id: str, size: float, mark: float) -> None:
         from py_clob_client.clob_types import OrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
 
+        sell_price = max(0.01, min(0.99, mark - 0.05))
         order = self._clob_client.create_order(
-            OrderArgs(token_id=token_id, price=0.01, size=size, side=SELL)
+            OrderArgs(token_id=token_id, price=sell_price, size=size, side=SELL)
         )
         self._clob_client.post_order(order, OrderType.FOK)

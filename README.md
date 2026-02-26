@@ -1,19 +1,22 @@
 # samsam
 
-폴리마켓 **BTC 15분 Up/Down** 자동매매 봇입니다.
+폴리마켓 **BTC 15분 Up/Down** 규칙 기반 자동매매 봇입니다.
 
-## 핵심 기능
-- Polymarket CLOB API 연동(키 기반)
-- BTC 15m YES/NO 토큰만 매매
-- 점수 기반 자동 진입 (UP/DOWN)
-- 익절 자동 청산(`TAKE_PROFIT_PCT`)
-- 최대 보유시간 청산(`MAX_HOLD_SECONDS`)
-- 텔레그램 상태/수동 제어
-  - `/status`: 현재 상태/성과
-  - `/buyup`: 수동 UP 진입
-  - `/buydown`: 수동 DOWN 진입
-  - `/close`: 즉시 청산
-- 실전 체결 데이터 SQLite 저장 + 주기적 파라미터 자동 조정
+## 현재 반영된 전략 규칙
+- 대상: BTC 15분 Up/Down (YES/NO token_id 고정)
+- 라운드 시작(정각 15분 단위) 후 **5초 동안 BTC 가격 추세**를 보고 방향 결정
+  - 상승: `UP`
+  - 하락: `DOWN`
+- **라운드 10분 시점**에 선택된 방향 토큰 가격이 `0.30 이하`일 때만 진입
+- 진입 주문은 FOK, 실패 시 **반대 방향으로 1회 재시도**
+- 청산 규칙
+  - 수익률 100% 이상이면 자동 청산
+  - 만기 3분 전(`T-180s`) 자동 청산
+- 연속진입 없음: 라운드당 최대 1회 진입
+
+## 텔레그램 명령
+- `/status`: 상태/성과 조회
+- `/close`: 현재 포지션 즉시 청산
 
 ## 1) 사전 준비
 1. BTC 15분 마켓의 YES/NO `token_id` 확인
@@ -31,12 +34,14 @@ set -a && source .env && set +a
 python -m bot.engine
 ```
 
-## 3) 설정값
-- `BTC15M_YES_TOKEN_ID`, `BTC15M_NO_TOKEN_ID`: 15분 BTC Up/Down 토큰 ID
-- `TAKE_PROFIT_PCT`: 예) `0.02` = +2% 도달 시 자동 청산
-- `MAX_HOLD_SECONDS`: 최대 보유시간(초)
-- `ORDER_SIZE`: 1회 주문 수량
+## 3) 주요 설정값
+- `BTC15M_YES_TOKEN_ID`, `BTC15M_NO_TOKEN_ID`
+- `ENTRY_PRICE_CAP=0.30`
+- `TAKE_PROFIT_PCT=1.0`
+- `ENTRY_CHECK_SECOND=600` (10분)
+- `FORCE_EXIT_BEFORE_EXPIRY_SEC=180` (만기 3분 전)
+- `ORDER_SIZE`
 
 ## 주의
-- 현재는 단일 포지션 모델(동시 다중 포지션 없음)
-- 봇은 공격형 자동매매를 전제로 하므로 실제 운용 전 소액 테스트 권장
+- 실거래 코드이므로 소액으로 먼저 검증 권장
+- BTC 가격 추세 소스는 Binance ticker API를 사용
