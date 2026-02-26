@@ -9,11 +9,14 @@ from typing import Iterable
 @dataclass(slots=True)
 class TradeRecord:
     ts: int
-    symbol: str
     side: str
+    token_id: str
     signal_score: float
     spread_bps: float
     hold_seconds: int
+    entry_price: float
+    exit_price: float
+    size: float
     pnl: float
     fees: float
     outcome: int
@@ -28,11 +31,14 @@ class DataStore:
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts INTEGER NOT NULL,
-                symbol TEXT NOT NULL,
                 side TEXT NOT NULL,
+                token_id TEXT NOT NULL,
                 signal_score REAL NOT NULL,
                 spread_bps REAL NOT NULL,
                 hold_seconds INTEGER NOT NULL,
+                entry_price REAL NOT NULL,
+                exit_price REAL NOT NULL,
+                size REAL NOT NULL,
                 pnl REAL NOT NULL,
                 fees REAL NOT NULL,
                 outcome INTEGER NOT NULL
@@ -45,16 +51,19 @@ class DataStore:
         self.conn.execute(
             """
             INSERT INTO trades
-            (ts, symbol, side, signal_score, spread_bps, hold_seconds, pnl, fees, outcome)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (ts, side, token_id, signal_score, spread_bps, hold_seconds, entry_price, exit_price, size, pnl, fees, outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 trade.ts,
-                trade.symbol,
                 trade.side,
+                trade.token_id,
                 trade.signal_score,
                 trade.spread_bps,
                 trade.hold_seconds,
+                trade.entry_price,
+                trade.exit_price,
+                trade.size,
                 trade.pnl,
                 trade.fees,
                 trade.outcome,
@@ -65,7 +74,8 @@ class DataStore:
     def fetch_recent_trades(self, limit: int = 500) -> Iterable[tuple]:
         cursor = self.conn.execute(
             """
-            SELECT ts, symbol, side, signal_score, spread_bps, hold_seconds, pnl, fees, outcome
+            SELECT ts, side, token_id, signal_score, spread_bps, hold_seconds,
+                   entry_price, exit_price, size, pnl, fees, outcome
             FROM trades
             ORDER BY id DESC
             LIMIT ?

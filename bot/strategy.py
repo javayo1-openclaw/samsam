@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -10,39 +11,34 @@ import numpy as np
 class StrategyState:
     entry_threshold: float = 0.62
     min_confidence: float = 0.55
-    size_fraction: float = 0.2
 
 
 class AdaptiveStrategy:
-    """Simple online strategy tuner using recent trade outcomes.
-
-    This is intentionally conservative in parameter updates to avoid unstable behavior.
-    """
-
     def __init__(self) -> None:
         self.state = StrategyState()
+        self._price_window: deque[float] = deque(maxlen=20)
 
-    def score(self, momentum: float, order_imbalance: float, vol_spike: float) -> float:
-        raw = 0.5 * momentum + 0.3 * order_imbalance + 0.2 * vol_spike
+    def score(self, yes_mid_price: float, spread_bps: float) -> float:
+        self._price_window.append(yes_mid_price)
+        if len(self._price_window) < 4:
+            return 0.0
+        momentum = self._price_window[-1] - self._price_window[0]
+        spread_penalty = min(spread_bps / 100, 0.2)
+        raw = 4.0 * momentum - spread_penalty
         return float(np.clip(raw, -1.0, 1.0))
 
     def should_enter(self, score: float) -> bool:
-        confidence = (score + 1) / 2
+        confidence = (abs(score) + 1) / 2
         return confidence >= self.state.entry_threshold and confidence >= self.state.min_confidence
 
     def retrain(self, recent_rows: Iterable[tuple]) -> None:
         rows = list(recent_rows)
         if len(rows) < 30:
             return
-
-        outcomes = np.array([r[8] for r in rows], dtype=np.float64)
+        outcomes = np.array([r[11] for r in rows], dtype=np.float64)
         signals = np.array([r[3] for r in rows], dtype=np.float64)
-        spread = np.array([r[4] for r in rows], dtype=np.float64)
-
-        weighted_edge = np.mean(outcomes * np.sign(signals) - 0.01 * spread)
-        if weighted_edge > 0.03:
+        edge = np.mean(outcomes * np.sign(signals))
+        if edge > 0.05:
             self.state.entry_threshold = max(0.52, self.state.entry_threshold - 0.01)
-            self.state.size_fraction = min(0.35, self.state.size_fraction + 0.01)
-        elif weighted_edge < -0.02:
+        elif edge < -0.02:
             self.state.entry_threshold = min(0.8, self.state.entry_threshold + 0.02)
-            self.state.size_fraction = max(0.08, self.state.size_fraction - 0.02)
